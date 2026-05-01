@@ -1,187 +1,21 @@
-import React, { useState, useEffect, useCallback } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
-import { Search } from 'lucide-react'
-
-const PAGE_SIZE = 30
-
-function regimeBadge(r) {
-  if (!r) return <span className="badge badge-outro">—</span>
-  if (r === 'Lucro Real') return <span className="badge badge-lr">Lucro Real</span>
-  if (r === 'Lucro Presumido') return <span className="badge badge-lp">Lucro Presumido</span>
-  if (r === 'Simples Nacional') return <span className="badge badge-sn">Simples Nacional</span>
-  return <span className="badge badge-outro">{r}</span>
-}
-function statusBadge(s) {
-  if (s === 'Baixada') return <span className="badge badge-baixada">Baixada</span>
-  if (s === 'Distrato') return <span className="badge badge-distrato">Distrato</span>
-  return <span className="badge badge-ativa">Ativa</span>
-}
-
-export default function Clientes() {
-  const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
-
-  const [clientes, setClientes] = useState([])
-  const [total, setTotal] = useState(0)
-  const [page, setPage] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [grupos, setGrupos] = useState([])
-  const [responsaveis, setResponsaveis] = useState([])
-  const [escritorioId, setEscritorioId] = useState(null)
-
-  const [busca, setBusca] = useState('')
-  const [filtroRegime, setFiltroRegime] = useState(searchParams.get('regime') || '')
-  const [filtroStatus, setFiltroStatus] = useState(searchParams.get('status') || '')
-  const [filtroResp, setFiltroResp] = useState('')
-  const [filtroEcd, setFiltroEcd] = useState(searchParams.get('ecd') || '')
-  const [filtroEcf, setFiltroEcf] = useState('')
-
-  useEffect(() => {
-    async function init() {
-      const { data: u } = await supabase.from('usuarios')
-        .select('escritorio_id').eq('id', (await supabase.auth.getUser()).data.user.id).single()
-      if (!u) return
-      setEscritorioId(u.escritorio_id)
-
-      const { data: g } = await supabase.from('grupos')
-        .select('nome').eq('escritorio_id', u.escritorio_id).order('ordem')
-      setGrupos(g?.map(x => x.nome) || [])
-
-      const { data: cl } = await supabase.from('clientes')
-        .select('resp_fiscal, resp_folha, resp_contabil, resp_exec_contabil')
-        .eq('escritorio_id', u.escritorio_id)
-      const all = new Set()
-      cl?.forEach(c => {
-        [c.resp_fiscal, c.resp_folha, c.resp_contabil, c.resp_exec_contabil]
-          .filter(Boolean).forEach(r => all.add(r))
-      })
-      setResponsaveis([...all].sort())
-    }
-    init()
-  }, [])
-
-  const loadClientes = useCallback(async () => {
-    if (!escritorioId) return
-    setLoading(true)
-
-    let q = supabase.from('clientes')
-      .select('id,codigo,nome,cnpj,regime_nome,status,resp_contabil,resp_fiscal,data_entrada,uf', { count: 'exact' })
-      .eq('escritorio_id', escritorioId)
-      .order('codigo', { ascending: true })
-      .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
-
-    if (busca) {
-      const b = busca.replace(/[.\-\/]/g, '')
-      q = q.or(`nome.ilike.%${busca}%,cnpj.ilike.%${b}%,codigo.eq.${parseInt(busca) || 0}`)
-    }
-    if (filtroRegime) q = q.eq('regime_nome', filtroRegime)
-    if (filtroStatus) q = q.eq('status', filtroStatus)
-    if (filtroResp) q = q.or(
-      `resp_fiscal.eq.${filtroResp},resp_folha.eq.${filtroResp},resp_contabil.eq.${filtroResp},resp_exec_contabil.eq.${filtroResp}`
-    )
-
-    const { data, count, error } = await q
-    if (!error) { setClientes(data || []); setTotal(count || 0) }
-    setLoading(false)
-  }, [escritorioId, busca, filtroRegime, filtroStatus, filtroResp, page])
-
-  useEffect(() => { loadClientes() }, [loadClientes])
-
-  const totalPages = Math.ceil(total / PAGE_SIZE)
-
-  return (
-    <>
-      <div className="page-header">
-        <div>
-          <div className="page-title">Clientes</div>
-          <div className="page-subtitle">{total} empresas cadastradas</div>
-        </div>
-        <button className="btn btn-primary" onClick={() => navigate('/clientes/novo')}>
-          + Novo cliente
-        </button>
-      </div>
-
-      <div className="page-content">
-        {/* Toolbar */}
-        <div className="toolbar">
-          <div className="toolbar-search">
-            <Search size={14} className="toolbar-search-icon" />
-            <input
-              placeholder="Buscar por código, CNPJ ou descrição..."
-              value={busca}
-              onChange={e => { setBusca(e.target.value); setPage(0) }}
-            />
-          </div>
-          <select value={filtroRegime} onChange={e => { setFiltroRegime(e.target.value); setPage(0) }} style={{minWidth:150}}>
-            <option value="">Regime (todos)</option>
-            {grupos.map(g => <option key={g} value={g}>{g}</option>)}
-          </select>
-          <select value={filtroStatus} onChange={e => { setFiltroStatus(e.target.value); setPage(0) }} style={{minWidth:140}}>
-            <option value="">Status (todos)</option>
-            <option>Ativa</option>
-            <option>Distrato</option>
-            <option>Baixada</option>
-          </select>
-          <select value={filtroResp} onChange={e => { setFiltroResp(e.target.value); setPage(0) }} style={{minWidth:150}}>
-            <option value="">Responsável (todos)</option>
-            {responsaveis.map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-          <select value={filtroEcd} onChange={e => { setFiltroEcd(e.target.value); setPage(0) }} style={{minWidth:130}}>
-            <option value="">ECD (todos)</option>
-            <option value="sim">ECD transmitida</option>
-            <option value="nao">ECD pendente</option>
-          </select>
-          <select value={filtroEcf} onChange={e => { setFiltroEcf(e.target.value); setPage(0) }} style={{minWidth:130}}>
-            <option value="">ECF (todos)</option>
-            <option value="sim">ECF transmitida</option>
-            <option value="nao">ECF pendente</option>
-          </select>
-        </div>
-
-        {/* Table */}
-        <div className="card">
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th style={{width:50}}>Cód.</th>
-                  <th>Empresa</th>
-                  <th style={{width:140}}>Regime</th>
-                  <th style={{width:90}}>Status</th>
-                  <th style={{width:100}}>Resp. Contábil</th>
-                  <th style={{width:70}}>Entrada</th>
-                  <th style={{width:40}}>UF</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr><td colSpan={7} style={{textAlign:'center', padding: 32, color:'var(--text-muted)'}}>Carregando...</td></tr>
-                ) : clientes.length === 0 ? (
-                  <tr><td colSpan={7}><div className="empty-state"><p>Nenhum cliente encontrado.</p></div></td></tr>
-                ) : clientes.map(c => (
-                  <tr key={c.id} onClick={() => navigate(`/clientes/${c.id}`)}>
-                    <td style={{fontWeight:500, color:'var(--text-muted)', fontFamily:'var(--font-mono)', fontSize:12}}>{c.codigo}</td>
-                    <td title={c.nome}>{c.nome}</td>
-                    <td>{regimeBadge(c.regime_nome)}</td>
-                    <td>{statusBadge(c.status)}</td>
-                    <td>{c.resp_contabil || c.resp_fiscal || '—'}</td>
-                    <td style={{fontSize:12, color:'var(--text-muted)'}}>{c.data_entrada ? new Date(c.data_entrada).toLocaleDateString('pt-BR') : '—'}</td>
-                    <td style={{fontSize:12}}>{c.uf || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="pager">
-            <span>{total > 0 ? `${page * PAGE_SIZE + 1}–${Math.min((page+1)*PAGE_SIZE, total)} de ${total}` : '0 resultados'}</span>
-            <div style={{display:'flex', gap:8}}>
-              <button className="btn btn-sm" disabled={page === 0} onClick={() => setPage(p => p-1)}>← Anterior</button>
-              <button className="btn btn-sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p+1)}>Próximo →</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </>
-  )
+{
+  "name": "contabil-system",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1",
+    "@supabase/supabase-js": "^2.39.0",
+    "react-router-dom": "^6.21.0",
+    "lucide-react": "^0.303.0"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build"
+  },
+  "browserslist": {
+    "production": [">0.2%","not dead","not op_mini all"],
+    "development": ["last 1 chrome version","last 1 firefox version","last 1 safari version"]
+  }
 }

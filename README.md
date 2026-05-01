@@ -1,152 +1,93 @@
-import React, { useState } from 'react'
-import { supabase } from '../lib/supabase'
+# Sistema Gerencial Contábil
 
-export default function Login() {
-  const [mode, setMode] = useState('login') // 'login' | 'cadastro'
-  const [email, setEmail] = useState('')
-  const [senha, setSenha] = useState('')
-  const [senha2, setSenha2] = useState('')
-  const [nomeEscritorioInput, setNomeEscritorio] = useState('')
-  const [nomeUsuario, setNomeUsuario] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
+Sistema web para controle contábil de clientes, multi-escritório, com ECD/ECF, sócios e histórico.
 
-  async function handleLogin(e) {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-    const { error } = await supabase.auth.signInWithPassword({ email, password: senha })
-    if (error) setError('E-mail ou senha incorretos.')
-    setLoading(false)
-  }
+---
 
-  async function handleCadastro(e) {
-    e.preventDefault()
-    setError('')
-    if (senha !== senha2) { setError('As senhas não coincidem.'); return }
-    if (!nomeEscritorioInput) { setError('Informe o nome do escritório.'); return }
-    setLoading(true)
+## Como colocar no ar (passo a passo — sem instalação local)
 
-    // 1. Criar usuário auth
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
-      password: senha,
-    })
-    if (authError) { setError(authError.message); setLoading(false); return }
+### 1. Criar conta no Supabase (banco de dados + autenticação)
+1. Acesse https://supabase.com e crie uma conta gratuita
+2. Clique em **"New project"**, dê um nome (ex: "contabil") e escolha uma senha forte
+3. Aguarde o projeto criar (~2 minutos)
+4. Vá em **Settings > API** e copie:
+   - **Project URL** (ex: `https://abcxyz.supabase.co`)
+   - **anon public key**
 
-    const userId = authData.user?.id
-    if (!userId) { setError('Erro ao criar usuário.'); setLoading(false); return }
+### 2. Criar as tabelas no Supabase
+1. No painel do Supabase, clique em **SQL Editor**
+2. Clique em **"New query"**
+3. Cole todo o conteúdo do arquivo `supabase_schema.sql` (está na pasta do projeto)
+4. Clique em **"Run"**
+5. Todas as tabelas serão criadas automaticamente
 
-    // 2. Criar escritório
-    const { data: esc, error: escError } = await supabase
-      .from('escritorios')
-      .insert({ nome: nomeEscritorioInput })
-      .select().single()
-    if (escError) { setError(escError.message); setLoading(false); return }
+### 3. Subir o código para o GitHub
+1. Acesse https://github.com e crie uma conta se não tiver
+2. Clique em **"New repository"**, dê o nome "contabil-system", clique em **"Create"**
+3. Faça upload de todos os arquivos desta pasta para o repositório
+   - Clique em **"uploading an existing file"**
+   - Selecione todos os arquivos e pastas (src, public, package.json, etc.)
+   - **Não inclua** o arquivo `.env` (apenas `.env.example`)
+4. Clique em **"Commit changes"**
 
-    // 3. Criar perfil do usuário
-    const { error: userError } = await supabase
-      .from('usuarios')
-      .insert({ id: userId, escritorio_id: esc.id, nome: nomeUsuario || email, email, nivel: 'admin' })
-    if (userError) { setError(userError.message); setLoading(false); return }
+### 4. Deploy na Vercel (hospedagem gratuita)
+1. Acesse https://vercel.com e crie uma conta com seu GitHub
+2. Clique em **"New Project"**
+3. Selecione o repositório "contabil-system"
+4. Antes de clicar em Deploy, clique em **"Environment Variables"** e adicione:
+   - Nome: `REACT_APP_SUPABASE_URL` → Valor: sua Project URL do Supabase
+   - Nome: `REACT_APP_SUPABASE_ANON_KEY` → Valor: sua anon key do Supabase
+5. Clique em **"Deploy"**
+6. Em ~3 minutos o sistema estará no ar com uma URL do tipo `contabil-system.vercel.app`
 
-    // 4. Criar grupos padrão
-    const gruposPadrao = [
-      { nome: 'Lucro Real', descricao: 'Apuração pelo lucro efetivo', ordem: 1 },
-      { nome: 'Lucro Presumido', descricao: 'Percentual fixo sobre receita bruta', ordem: 2 },
-      { nome: 'Simples Nacional', descricao: 'Regime unificado DAS', ordem: 3 },
-      { nome: 'Desenquadrada', descricao: 'Empresa em processo de enquadramento', ordem: 4 },
-      { nome: 'SFL', descricao: 'Sem fins lucrativos', ordem: 5 },
-      { nome: 'Isenta', descricao: 'Entidade isenta de tributação', ordem: 6 },
-      { nome: 'Folha de Pagamento', descricao: 'Apenas gestão de folha', ordem: 7 },
-    ]
-    await supabase.from('grupos').insert(
-      gruposPadrao.map(g => ({ ...g, escritorio_id: esc.id }))
-    )
+### 5. Primeiro acesso
+1. Acesse a URL gerada pela Vercel
+2. Clique em **"Cadastrar novo escritório"**
+3. Preencha o nome do escritório e seus dados de acesso
+4. O sistema criará automaticamente:
+   - Os grupos de regimes padrão (Lucro Real, Presumido, Simples Nacional, etc.)
+   - As competências 2024 e 2025
+5. Pronto! Você pode começar a cadastrar clientes
 
-    // 5. Criar competências padrão
-    await supabase.from('competencias').insert([
-      { escritorio_id: esc.id, ano: 2024, data_inicio: '2024-01-01', data_fim: '2024-12-31', status: 'encerrada' },
-      { escritorio_id: esc.id, ano: 2025, data_inicio: '2025-01-01', data_fim: '2025-12-31', status: 'aberta' },
-    ])
+---
 
-    setSuccess('Escritório criado! Verifique seu e-mail para confirmar o cadastro.')
-    setLoading(false)
-  }
+## Estrutura do projeto
 
-  return (
-    <div className="login-page">
-      <div className="login-card">
-        <div className="login-logo">RF</div>
+```
+src/
+  App.js              — Roteamento principal
+  App.css             — Estilos globais
+  lib/
+    supabase.js       — Conexão com o banco
+  pages/
+    Login.js          — Tela de login e cadastro de escritório
+    Dashboard.js      — Painel com métricas
+    Clientes.js       — Lista de clientes com filtros
+    ClienteFicha.js   — Ficha completa do cliente (5 abas)
+    Usuarios.js       — Usuários, Competências e Grupos
+  components/
+    Layout.js         — Sidebar + estrutura de navegação
 
-        {mode === 'login' ? (
-          <>
-            <div className="login-title">Entrar no sistema</div>
-            <div className="login-sub">Acesse sua conta do escritório</div>
-            <form onSubmit={handleLogin}>
-              <div className="field">
-                <label>E-mail</label>
-                <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="contador@escritorio.com.br" required />
-              </div>
-              <div className="field">
-                <label>Senha</label>
-                <input type="password" value={senha} onChange={e=>setSenha(e.target.value)} placeholder="••••••••" required />
-              </div>
-              {error && <div className="error-msg">{error}</div>}
-              <button className="btn btn-primary" type="submit" style={{width:'100%',justifyContent:'center',marginTop:8}} disabled={loading}>
-                {loading ? 'Entrando...' : 'Entrar'}
-              </button>
-            </form>
-            <div className="login-divider">ou</div>
-            <button className="btn" style={{width:'100%',justifyContent:'center'}} onClick={()=>setMode('cadastro')}>
-              Cadastrar novo escritório
-            </button>
-          </>
-        ) : (
-          <>
-            <div className="login-title">Novo escritório</div>
-            <div className="login-sub">Preencha os dados para começar</div>
-            {success ? (
-              <div style={{color: 'var(--green)', fontSize: 13, lineHeight: 1.6}}>{success}
-                <br/><button className="btn btn-sm" style={{marginTop:12}} onClick={()=>setMode('login')}>Voltar ao login</button>
-              </div>
-            ) : (
-              <form onSubmit={handleCadastro}>
-                <div className="field">
-                  <label>Nome do escritório *</label>
-                  <input value={nomeEscritorioInput} onChange={e=>setNomeEscritorio(e.target.value)} placeholder="Alva Contabilidade" required />
-                </div>
-                <div className="field">
-                  <label>Seu nome *</label>
-                  <input value={nomeUsuario} onChange={e=>setNomeUsuario(e.target.value)} placeholder="Ricardo Fonseca" required />
-                </div>
-                <div className="field">
-                  <label>E-mail *</label>
-                  <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="admin@escritorio.com.br" required />
-                </div>
-                <div className="field-row field-row-2">
-                  <div className="field">
-                    <label>Senha *</label>
-                    <input type="password" value={senha} onChange={e=>setSenha(e.target.value)} placeholder="mínimo 6 caracteres" required />
-                  </div>
-                  <div className="field">
-                    <label>Confirmar senha *</label>
-                    <input type="password" value={senha2} onChange={e=>setSenha2(e.target.value)} placeholder="••••••••" required />
-                  </div>
-                </div>
-                {error && <div className="error-msg">{error}</div>}
-                <button className="btn btn-primary" type="submit" style={{width:'100%',justifyContent:'center',marginTop:8}} disabled={loading}>
-                  {loading ? 'Criando...' : 'Criar escritório'}
-                </button>
-                <button type="button" className="btn" style={{width:'100%',justifyContent:'center',marginTop:8}} onClick={()=>setMode('login')}>
-                  Voltar ao login
-                </button>
-              </form>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
+supabase_schema.sql   — Script SQL para criar as tabelas
+```
+
+## Funcionalidades
+
+- **Multi-escritório** — cada escritório vê apenas seus próprios dados
+- **Login** com e-mail e senha (Supabase Auth)
+- **Clientes** — código, razão social, CNPJ, regime, status (ativa/distrato/baixada), responsáveis, entrada/saída
+- **Busca** por código, CNPJ ou descrição
+- **Filtros** por regime, status, responsável, ECD e ECF
+- **Ficha completa** com 5 abas: Cadastro, Tributário, Sócios, ECD/ECF, Histórico
+- **Sócios** — nome, CPF, % participação, pró-labore, distribuição de lucros
+- **ECD/ECF** — controle por competência (ano) com número de recibo
+- **Histórico** — registro de ocorrências com data e usuário
+- **Grupos/Regimes** — configuráveis pelo escritório
+- **Competências** — criação e encerramento de anos fiscais
+- **Usuários** — admin, contador, visualizador
+
+## Adicionar mais usuários ao escritório
+
+Por limitação do Supabase no plano gratuito, novos usuários devem criar conta pelo link de cadastro do sistema e depois você vincula o escritório_id manualmente pelo SQL Editor do Supabase, ou use o fluxo de invite (requer plano pago do Supabase).
+
+Alternativa gratuita: cada usuário novo acessa o sistema, cria um "escritório" com nome qualquer, e você atualiza o `escritorio_id` na tabela `usuarios` via SQL Editor para apontar para o escritório correto.
